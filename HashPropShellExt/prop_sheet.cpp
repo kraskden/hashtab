@@ -162,7 +162,7 @@ INT_PTR PropPageDlgProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 		break;
 	case WM_COMMAND:
 		if (HIWORD(wParam) == BN_CLICKED && LOWORD(wParam) == IDC_BUTTONCALC) { // Custom hash
-			MessageBoxA(NULL, "", "", 0);
+			init_custom_hash(hwnd, hwnd_map[hwnd]);
 		}
 		if (HIWORD(wParam) == EN_CHANGE && LOWORD(wParam) == IDC_EDITENTER) {
 			compare_hash(hwnd);
@@ -222,16 +222,44 @@ void init_page(HWND hwnd, PROPSHEETPAGE* page)
 	SendMessage(combobox, CB_SETCURSEL, (WPARAM)0, (LPARAM)0);
 
 	SharedInfo* info = (SharedInfo*)page->lParam;
+	info->is_custom = false;
 	//SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
-	HANDLE thread = CreateThread(NULL, 0, thread_compute, (LPVOID)page->lParam, 0, NULL);
+	thread_start(hwnd, info);
+}
+
+void init_custom_hash(HWND hwnd, PROPSHEETPAGE* page)
+{
+	SharedInfo* info = (SharedInfo*)page->lParam;
+	info->is_custom = true;
+	HWND combobox = GetDlgItem(hwnd, IDC_COMBOALGO);
+	int ItemIndex = SendMessage(combobox, (UINT)CB_GETCURSEL,
+		(WPARAM)0, (LPARAM)0);
+	SendMessage(combobox, (UINT)CB_GETLBTEXT,
+		(WPARAM)ItemIndex, (LPARAM)info->custom_name);
+	thread_start(hwnd, info);
+}
+
+void thread_start(HWND hwnd, SharedInfo* info)
+{
+	HANDLE thread = CreateThread(NULL, 0, info->is_custom ? thread_compute_custom : thread_compute, (LPVOID)info, 0, NULL);
 	SetThreadPriority(thread, THREAD_PRIORITY_HIGHEST);
 	info->handle = thread;
 	if (WaitForSingleObject(thread, 200) == WAIT_TIMEOUT) { // Long hash calculations
-		render_hash(hwnd, L"Computing...", L"Computing...", L"Computing...");
+		if (info->is_custom) {
+			SetDlgItemText(hwnd, IDC_EDITCUSTOM, L"Computing...");
+		}
+		else {
+			render_hash(hwnd, L"Computing...", L"Computing...", L"Computing...");
+		}
 		SetTimer(hwnd, IDT_TIMER, 200, NULL);
 	}
 	else {
-		render_hash(hwnd, info->crc32, info->md5, info->sha1);
+		if (info->is_custom) {
+			SetDlgItemText(hwnd, IDC_EDITCUSTOM, info->hash);
+		}
+		else {
+			render_hash(hwnd, info->crc32, info->md5, info->sha1);
+		}
 	}
 }
 
@@ -239,7 +267,13 @@ void on_timer(HWND hwnd, PROPSHEETPAGE* page)
 {
 	SharedInfo* info = (SharedInfo*)page->lParam;
 	if (WaitForSingleObject(info->handle, 0) == WAIT_OBJECT_0) {
-		render_hash(hwnd, info->crc32, info->md5, info->sha1);
+		if (info->is_custom) {
+			SetDlgItemText(hwnd, IDC_EDITCUSTOM, info->hash);
+		}
+		else {
+			render_hash(hwnd, info->crc32, info->md5, info->sha1);
+			
+		}
 		KillTimer(hwnd, IDT_TIMER);
 	}
 }
@@ -256,18 +290,22 @@ DWORD WINAPI thread_compute(VOID* in)
 	return 0;
 }
 
+DWORD WINAPI thread_compute_custom(VOID* in)
+{
+	SharedInfo* info = (SharedInfo*)in;
+	CryptoPP::HashTransformation* hash = getHashProvider(std::wstring(info->custom_name));
+	std::wstring res;
+	getCustomHash(info->path, res, hash);
+	delete hash;
+	wcscpy(info->hash, res.c_str());
+}
+
 bool getHash(WCHAR* path, std::wstring& md5_str, std::wstring& sha1_str, std::wstring& crc32_str)
 {
 	using namespace CryptoPP;
 	Weak::MD5 md5; SHA1 sha1; CRC32 crc32;
 	HashTransformation* hash_transform[] = { &md5, &crc32, &sha1 };
-	HANDLE hFile = CreateFile(path,                   // lpFileName
-		GENERIC_READ,               // dwDesiredAccess
-		0,                          // dwShareMode
-		NULL,                       // lpSecurityAttributes
-		OPEN_EXISTING,              // dwCreationDisposition
-		FILE_FLAG_BACKUP_SEMANTICS, // dwFlagsAndAttributes
-		NULL);                     // hTemplateFile
+	HANDLE hFile = CreateFile(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);                     
 	if (hFile) {
 		DWORD count;
 		constexpr int size = 1024 * 1024;
@@ -292,6 +330,30 @@ bool getHash(WCHAR* path, std::wstring& md5_str, std::wstring& sha1_str, std::ws
 	}
 	return true;
 
+}
+
+bool getCustomHash(WCHAR* path, std::wstring& res, CryptoPP::HashTransformation* hash)
+{
+	HANDLE hFile = CreateFile(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+	if (hFile) {
+		DWORD count;
+		constexpr int size = 1024 * 1024;
+		UINT8* buff = new UINT8[size];
+		while (1) {
+			ReadFile(hFile, buff, size, &count, NULL);
+			if (count == 0)
+				break;
+			hash->Update(buff, count);
+		}
+		delete buff;
+		CloseHandle(hFile);
+
+		res = hashToString(hash);
+	}
+	else {
+		return false;
+	}
+	return true;
 }
 
 std::wstring hashToString(CryptoPP::HashTransformation* hash)
