@@ -43,7 +43,14 @@ HRESULT __stdcall DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv)
 		return CLASS_E_NOAGGREGATION;
 	if (!ppv)
 		return E_POINTER;
-	*ppv = new HandlerFactory();
+	HandlerFactory* factory = new HandlerFactory();
+	if (!factory)
+		return E_OUTOFMEMORY;
+	HRESULT hr;
+	hr = factory->QueryInterface(riid, ppv);
+	factory->Release();
+	return hr;
+
 	return S_OK;
 }
 

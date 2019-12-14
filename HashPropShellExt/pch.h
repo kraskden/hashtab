@@ -8,6 +8,7 @@
 #define PCH_H
 
 // add headers that you want to pre-compile here
+#define _CRT_SECURE_NO_WARNINGS
 #include "framework.h"
 #include <ShlObj.h>
 

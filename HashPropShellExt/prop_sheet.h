@@ -1,9 +1,20 @@
 #pragma once
 
 #include "pch.h"
+#include <string>
+#include <cryptlib.h>
 
 extern DWORD objects_count;
 extern HMODULE dllHandle;
+
+struct SharedInfo {
+	wchar_t path[MAX_PATH];
+	HANDLE handle;
+	wchar_t hash[256];
+	wchar_t md5[256];
+	wchar_t sha1[256];
+	wchar_t crc32[256];
+};
 
 class PropSheet : public IShellExtInit, public IShellPropSheetExt
 {
@@ -11,7 +22,7 @@ protected:
 	DWORD ref_count;
 	~PropSheet();
 	IDataObject *data_object;
-	wchar_t path[MAX_PATH];
+	SharedInfo* sharedInfo = new SharedInfo();
 
 public:
 	PropSheet();
@@ -30,3 +41,10 @@ public:
 
 };
 
+INT_PTR CALLBACK PropPageDlgProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+UINT CALLBACK PropPageCallbackProc(HWND hwnd, UINT uMsg, LPPROPSHEETPAGE ppsp);
+void init_page(HWND hwnd, PROPSHEETPAGE* page);
+void on_timer(HWND hwnd, PROPSHEETPAGE* page);
+bool getHash(WCHAR* path, std::wstring& md5_str, std::wstring& sha1_str, std::wstring& crc32_str);
+std::wstring hashToString(CryptoPP::HashTransformation* hash);
+void compare_hash(HWND hwnd);
